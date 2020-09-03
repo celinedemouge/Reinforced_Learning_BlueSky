@@ -1,0 +1,3 @@
+ifps_id,ac_id,ac_type,aobt,icao_dep,icao_arr,ddr_source,departure_runway,arrival_runway,order,distance,fl,time_over,type,rel_dist,geo_point_type,lat,lon,wpt_name,wpt_type
+AA67003065,UAE187,A388,"2017-08-18 11:55:00",OMDB,LEBL,20170818.ALL_FT+,NULL,LEBL25R,114,5536,231,"2017-08-18 10:07:01",W,NULL,DB,40.354722222199996,1.28,SLL,DB
+AA67003065,UAE197,P68,"2017-08-18 11:55:32",OMDB,LEBL,20170818.ALL_FT+,NULL,LEBL25R,114,5536,231,"2017-08-18 10:10:02",W,NULL,DB,40.354722222199996,1.28,SLL,DB

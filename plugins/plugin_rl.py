@@ -1,0 +1,262 @@
+from bluesky import stack, traf, sim
+import time
+import dataDef as data
+import dataRL
+import plugin_holding
+import plugin_init
+import numpy as np
+import random
+import plotting
+import copy
+
+
+def mean(l):
+    """Computes the mean value of the list l"""
+    m = 0
+    n = len(l)
+    if n == 0:
+        return 0
+    for x in l:
+        m += x
+    return m / n
+
+
+def init_plugin():
+    """Initialization function of the plugin"""
+
+    # Configuration parameters
+    config = {
+        "plugin_name": "RL",
+        "plugin_type": "sim",
+        "update_interval": 30,
+        "update": update,
+    }
+
+    stackfunctions = {}
+    # init_plugin() should always return these two dicts.
+    return config, stackfunctions
+
+
+def update():
+
+    """Periodic update functions that are called by the simulation."""
+
+    # End of an iteration
+    if sim.simt >= (3600 * 20 - 100) and dataRL.nbIter < dataRL.maxIter:
+        dataRL.eps = 0.98 * dataRL.eps
+        stack.stack("HOLD")
+        if len(traf.id) != 0:
+
+            data.falseIter_nb = len(traf.id)
+            for x in traf.id:
+                stack.stack("DEL {}".format(x))
+                data.fuel -= data.fuel_detail[x]
+                data.fuel_detail[x] = 0
+
+            data.falseIter.append(dataRL.nbIter)
+        else:
+            data.falseIter_nb = 0
+        denom = data.nbAircraft - data.falseIter_nb
+
+        # save things for plotting
+        data.saving[dataRL.nbIter - 1, 0] = data.fuel / denom
+
+        data.saving[dataRL.nbIter - 1, 1] = data.conflicts
+        data.saving[dataRL.nbIter - 1, 2] = np.linalg.norm(dataRL.Q)
+        data.saving[dataRL.nbIter - 1, 3] = min(
+            [x for x in data.fuel_detail.values() if x != 0]
+        )
+        data.saving[dataRL.nbIter - 1, 4] = max(data.fuel_detail.values())
+        data.saving_t[dataRL.nbIter - 1, 0] = min(data.time_detail.values())
+        data.saving_t[dataRL.nbIter - 1, 1] = mean(data.time_detail.values())
+        data.saving_t[dataRL.nbIter - 1, 2] = max(data.time_detail.values())
+        data.saving_d[dataRL.nbIter - 1, 0] = min(data.distance_detail.values())
+        data.saving_d[dataRL.nbIter - 1, 1] = mean(data.distance_detail.values())
+        data.saving_d[dataRL.nbIter - 1, 2] = max(data.distance_detail.values())
+
+        r = 0
+
+        if data.conflicts < get_conf_min() or get_conf_min() == -1:
+            k = dataRL.nbIter % dataRL.nbRandom
+            dataRL.conf_min[k] = data.conflicts
+            dataRL.fuel_min[k] = 0
+
+        # reward computation
+        if data.conflicts == get_conf_min():
+            if get_fuel_min() == 0 or data.fuel / denom < get_fuel_min():
+                k = dataRL.nbIter % dataRL.nbRandom
+
+                dataRL.fuel_min[k] = data.fuel / denom
+
+                r = 100
+            elif abs(data.fuel / denom - get_fuel_min()) <= 0.5:
+                r = 10
+
+            else:
+                r = -10 * abs((get_fuel_min() - data.fuel / denom) / (get_fuel_min()))
+
+        else:
+            r = (-500000 * (data.conflicts - get_conf_min())) + 1
+
+        # update Q
+
+        for (lls, lla, ls, la) in dataRL.thingsDone:
+            updateQ(lls, lla, ls, la, r)
+
+        sim.op()
+        data.falseIter_nb = 0
+        print("Numero iter : {}".format(dataRL.nbIter))
+        stack.stack("INIT")
+        return None
+
+    # last iteration
+    elif sim.simt >= (3600 * 20 - 100) and dataRL.nbIter == dataRL.maxIter:
+        last_iteration()
+        return None
+
+    n = len(traf.id)
+    if n == 0 or data.delta_fuel == 0:
+        return None
+
+    # if the algorithm dealt with an aircraft in the last step
+    if dataRL.orderUnderStudy != -1:
+        k1 = dataRL.orderUnderStudy
+        dataRL.lastStates = copy.deepcopy(data.states)
+        # Conflicts number computation
+        t_min = min(
+            [
+                min(
+                    data.states[k].t_before,
+                    data.states[k].t_after,
+                    data.states[k].t_merge,
+                )
+                for k in data.in_holding_g
+            ]
+        )
+        l = [data.states[k].t_merge for k in range(data.nbAircraft) if data.merged[k]]
+        t_min2 = min(l) if l != [] else 0
+        if t_min < 0:
+            data.conflicts += 1
+            print("cl")
+
+        if t_min2 < 0:
+            print("cl merged")
+            if t_min >= 0:
+                data.conflicts += 1
+
+        dataRL.thingsDone.append(
+            (
+                dataRL.lastlastStates[k1].toNumber(),
+                dataRL.lastlastAction[k1],
+                dataRL.lastStates[k1].toNumber(),
+                dataRL.lastAction[k1],
+            )
+        )
+
+    search_order = 0
+    k2 = -1
+    # find someone else to study
+    while not (k2 in data.in_holding_g) or search_order <= data.nbAircraft:
+
+        dataRL.orderUnderStudy = (dataRL.orderUnderStudy + 1) % (data.nbAircraft)
+        if data.aircraft[dataRL.orderUnderStudy].callsign in traf.id:
+            k2 = dataRL.orderUnderStudy
+
+        search_order += 1
+
+    if search_order == data.nbAircraft:
+        dataRL.orderUnderStudy = -1
+        return None
+    q0 = dataRL.Q[0, dataRL.lastStates[k2].toNumber()]
+    q1 = dataRL.Q[1, dataRL.lastStates[k2].toNumber()]
+    decision = take_decision(k2, dataRL.lastStates[k2].toNumber(), q0, q1)
+
+    if decision == 1:
+
+        plugin_holding.startMerging(data.aircraft[k2].callsign)
+
+    dataRL.lastlastAction = copy.deepcopy(dataRL.lastAction)
+    dataRL.lastlastStates = copy.deepcopy(dataRL.lastStates)
+
+    dataRL.lastAction[k2] = decision
+
+
+def updateQ(lastState, lastAction, nextState, nextAction, r):
+    """Updates Q matrix"""
+    gamma = dataRL.gamma
+    alpha = dataRL.alpha / (dataRL.Q1[nextAction, lastState] + 1)
+
+    qmax = max(dataRL.Q[0, nextState], dataRL.Q[1, nextState])
+
+    if dataRL.Q[nextAction, lastState] < -1000 and r > 0:
+        dataRL.Q[nextAction, lastState] = 0
+    dataRL.Q[nextAction, lastState] = dataRL.Q[nextAction, lastState] + alpha * (
+        r + gamma * (qmax - dataRL.Q[nextAction, lastState])
+    )
+
+
+def take_decision(k, currentState, q0, q1):
+    """Take a decision for the aircraft k at the state currentState"""
+    r = random.random()
+
+    eps = dataRL.eps
+    if dataRL.maxIter == 1:
+        eps = 0
+
+    # Maximum 10 minutes of holding
+    if (sim.simt - data.begHold[k]) >= 10 * 60:
+        dataRL.Q1[1, currentState] += 1
+        return 1
+
+    if r >= eps:
+        # non random choice
+
+        if q1 == 0 and q0 != 0:
+
+            dataRL.Q1[1, currentState] += 1
+            return 1
+        elif q0 == 0 and q1 != 0:
+
+            dataRL.Q1[0, currentState] += 1
+            return 0
+        if q0 > q1:
+            dataRL.Q1[0, currentState] += 1
+        else:
+            dataRL.Q1[1, currentState] += 1
+        result = 0 if q0 > q1 else 1
+        dataRL.Q1[result, currentState] += 1
+        return result
+
+    else:
+        # random choice
+        result = int(random.randint(0, 1))
+        dataRL.Q1[result, currentState] += 1
+        return result
+
+
+def get_conf_min():
+    """Get the minimum conflict number for the training set."""
+    k = dataRL.nbIter % dataRL.nbRandom
+    return dataRL.conf_min[k]
+
+
+def get_fuel_min():
+    """Get the minimum fuel consumption for the training set."""
+    k = dataRL.nbIter % dataRL.nbRandom
+    return dataRL.fuel_min[k]
+
+
+def last_iteration():
+    print("----- Results -----")
+    print("Fuel consumption: {}".format(data.fuel / data.nbAircraft))
+    print("Conflicts : {}".format(data.conflicts))
+    print("saving")
+    np.savez_compressed("plugins/q.npz", q=dataRL.Q)
+    print("plotting")
+    print(data.falseIter)
+    if dataRL.maxIter != 1:  # If learning process and not applying one
+        plotting.plotting()
+
+    sim.quit()
+    sim.stop()
+    quit()

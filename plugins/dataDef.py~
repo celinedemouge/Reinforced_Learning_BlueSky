@@ -1,0 +1,55 @@
+import demandExtraction
+
+aircraft = []
+nbAircraft = 0
+
+l = []
+aircraftForSearch = {}
+fuel = 0
+fuel_detail = {}
+time_detail = {}
+distance_detail = {}
+saving_d = None
+saving_t = None
+direct = {}
+states = []
+index_aircraft = {}
+
+conflicts = 0
+
+delta_fuel = 0
+begHold = []
+nextOrd = []
+
+orders = []
+
+
+order_inv = {}
+saving = None
+
+wtc = {}
+wtc_t = {
+    ("SH", "H"): 1.5,
+    ("SH", "M"): 3,
+    ("SH", "L"): 4,
+    ("SH", "SH"): 1.5,
+    ("SH", "D"): 4,
+    ("H", "H"): 1.5,
+    ("H", "M"): 2,
+    ("H", "L"): 3,
+    ("H", "SH"): 1.5,
+    ("M", "L"): 3,
+    ("M", "M"): 1.5,
+    ("M", "H"): 1.5,
+    ("M", "SH"): 1.5,
+    ("L", "L"): 1.5,
+    ("L", "M"): 1.5,
+    ("L", "H"): 1.5,
+}
+nb_con = 0
+done_id = []
+falseIter = []
+falseIter_nb = 0
+merged = []
+in_holding = [[], [], [], [], [], []]
+in_holding_g = []
