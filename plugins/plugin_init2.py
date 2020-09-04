@@ -38,7 +38,7 @@ def initSim():
     dataRL.fuel_min = [0 for _ in range(dataRL.nbRandom)]
 
     name = "test0"
-    la = createScn.create(0, 83, name)
+    la = createScn.create(408, 418, name)
     data.l.append(la)
 
     data.aircraft = copy.deepcopy(la)

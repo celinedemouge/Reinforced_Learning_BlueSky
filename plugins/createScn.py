@@ -103,7 +103,7 @@ def createScn(list, scnName, ii, jj):
 
 def create(ii, jj, n):
     """Main function of the module, create the scenario for the execution of the program"""
-    data_extracted = e.extractData("plugins/test2.csv")
+    data_extracted = e.extractData("plugins/arr_bcn_18_08_2017_actual.csv")
     data_keeped = createScn(
         data_extracted, "scenario/{}.scn".format(n), ii, jj
     )  # some data are not keeped
